@@ -2,10 +2,10 @@
 
 dv-trio takes in a trio (father-mother-child) of bam files and calls variants using DeepVariant and a post-processing pipeline to eliminate mendelian errors.
 
-##Installation
+## Installation
 Clone this repository into your cloud instance and run the `install_dependencies.sh` script. This will install all dependencies onto your instance's PATH.
 
-##Usage
+## Usage
 ```
 Usage:
        dv-trio.sh -f father -m mother -c child -s sex [ -o output ] [ -t threshold ] [ -b bucket ]
