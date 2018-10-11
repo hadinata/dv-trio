@@ -12,7 +12,7 @@ usage() {
 
   cat <<EOF
 Usage:
-       $(basename $0) <[-f] father> <[-m] mother> <[-c] child> <[-s] sex> [ -o output | -t threshold ]
+       $(basename $0) -f father -m mother -c child -s sex [ -o output ] [ -t threshold ] [ -b bucket ]
 
 Post-processes trio calls made by DeepVariant to correct for Mendelian errors.
 
@@ -25,9 +25,9 @@ Required arguments:
   -r <reference>  path to reference file
 
 Options:
-
   -t <threshold>  likelihood ratio cutoff threshold (float b/w 0 and 1) 
   -o <output>     path to desired output directory
+  -b <bucket>     S3 bucket path to write output to
   -h              This help message.
 EOF
 
@@ -74,39 +74,14 @@ done
 
 shift $((OPTIND -1))
 
-echo $father_path
-echo $mother_path
-echo $child_path
-echo $child_sex
-echo $outdir
-
-
 
 # Get sample names of samples
 father_sample=`samtools view -H $father_path | grep '^@RG' | sed "s/.*SM:\([^\t]*\).*/\1/g" | uniq`
 mother_sample=`samtools view -H $mother_path | grep '^@RG' | sed "s/.*SM:\([^\t]*\).*/\1/g" | uniq`
 child_sample=`samtools view -H $child_path | grep '^@RG' | sed "s/.*SM:\([^\t]*\).*/\1/g" | uniq`
 
-echo $child_sample
-
-
 running_dir=`pwd`
-
-echo 'GETING DIRS'
-
-cd $outdir
 absolute_outdir=`pwd`
-
-cd $running_dir
-
-echo $outdir
-echo $absolute_outdir
-echo $running_dir
-
-
-
-
-echo "DONE"
 
 
 # DeepVariant Locations
@@ -254,14 +229,13 @@ echo "Starting postprocessing!"
 PP_BASE="${absolute_outdir}/postprocessing"
 PP_TEMP_DIR="${PP_BASE}/temp"
 PP_OUTPUT_DIR="${PP_BASE}/output"
-
-# LOG_DIR_BASE="${BASE}/logs"
-# REF="${running_dir}/$ref"
+PP_LOG_DIR="${PP_BASE}/logs"
 
 temp="${outdir}/temp"
 mkdir -p $PP_BASE
 mkdir -p $PP_TEMP_DIR
 mkdir -p $PP_OUTPUT_DIR
+mkdir -p $PP_LOG_DIR
 
 triple_name="${child_sample}_${father_sample}_${mother_sample}"
 
@@ -271,21 +245,11 @@ father_vcf="${OUTPUT_DIR}/${father_sample}.output.vcf.gz"
 mother_vcf="${OUTPUT_DIR}/${mother_sample}.output.vcf.gz"
 child_vcf="${OUTPUT_DIR}/${child_sample}.output.vcf.gz"
 
-echo "HEREEEEE"
-echo "${father_vcf}"
-
 zcat $father_vcf > "${PP_TEMP_DIR}/${father_sample}.output.vcf"
 zcat $mother_vcf > "${PP_TEMP_DIR}/${mother_sample}.output.vcf"
 zcat $child_vcf > "${PP_TEMP_DIR}/${child_sample}.output.vcf"
 
-# processed_f=`echo "${PP_TEMP_DIR}/${father_sample}.output.vcf" | sed 's/.*\///'`
-# processed_m=`echo "${PP_TEMP_DIR}/${mother_sample}.output.vcf" | sed 's/.*\///'`
-# processed_c=`echo "${PP_TEMP_DIR}/${child_sample}.output.vcf" | sed 's/.*\///'`
-
 vcfs=( $child_sample $father_sample $mother_sample )
-# vcfs+=(${processed_f::${#processed_f}-4})
-# vcfs+=(${processed_m::${#processed_m}-4})
-# vcfs+=(${processed_c::${#processed_c}-4})
 
 processed_vcfs_args=""
 
