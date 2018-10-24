@@ -12,23 +12,23 @@ usage() {
 
   cat <<EOF
 Usage:
-       $(basename $0) -f father -m mother -c child -s sex [ -o output ] [ -t threshold ] [ -b bucket ]
+       $(basename $0) -f father -m mother -c child -s sex -r reference [ -o output ] [ -t threshold ] [ -b bucket ]
 
 Post-processes trio calls made by DeepVariant to correct for Mendelian errors.
 
 Required arguments:
 
-  -f <father>     path to vcf file of father sample
-  -m <mother>     path to vcf file of mother sample
-  -c <child>      path to vcf file of child sample
+  -f <father>     path to bam file of father sample
+  -m <mother>     path to bam file of mother sample
+  -c <child>      path to bam file of child sample
   -s <sex>        sex of child (m/f)
   -r <reference>  path to reference file
 
 Options:
-  -t <threshold>  likelihood ratio cutoff threshold (float b/w 0 and 1) 
-  -o <output>     path to desired output directory
+  -o <output>     path to desired output directory (defaults to current directory)
+  -t <threshold>  likelihood ratio cutoff threshold (float b/w 0 and 1, default is 0.3)
   -b <bucket>     S3 bucket path to write output to
-  -h              This help message.
+  -h              this help message
 EOF
 
   exit $ec
@@ -42,11 +42,13 @@ child_sex=''
 ref=''
 threshold=''
 outdir=$(dirname "$0")
+upload_to_bucket=false
+bucket=''
 
 # -s, -l, -u and -d require an arg. -h and -p don't. The leading ':' in
 # the getopts string enables 'silent' error mode (i.e. we handle
 # any errors ourselves)
-while getopts ':hf:m:c:s:r:o:t' opt; do
+while getopts ':hf:m:c:s:r:o:t:' opt; do
   case "$opt" in 
     f) father_path="$OPTARG" ;;
     m) mother_path="$OPTARG" ;;
@@ -109,115 +111,96 @@ MODEL_BUCKET="${BUCKET}/models/DeepVariant/${MODEL_VERSION}/DeepVariant-inceptio
 
 N_SHARDS="4"
 
-# # Download model into MODEL_DIR
-# echo "Downloading model"
-# cd "${MODELS_DIR}"
-# gsutil -m cp -r "${MODEL_BUCKET}/*" .
-# echo "DOne downloading model"
+# Download model into MODEL_DIR
+echo "Downloading model"
+cd "${MODELS_DIR}"
+gsutil -m cp -r "${MODEL_BUCKET}/*" .
+echo "DOne downloading model"
 
-# # S3 bucket to store output
-# BUCKET_OUTPUT="vccri-giannoulatou-lab-clihad-deepvariant/outputs/demo"
-
-
-# cd "${BASE}"
-# samples=( $child_sample $father_sample $mother_sample )
-# bams=( $child_path $father_path $mother_path )
-# indices=( 0 1 2 )
-
-# for index in ${indices[@]}
-# do
-#     SAMPLE=${samples[$index]}
-#     BAM="${running_dir}/${bams[$index]}"
-
-#     echo "DOING ${SAMPLE} now from ${BAM}..."
-
-#     EXAMPLES="${TEMP_DIR}/${SAMPLE}.examples.tfrecord@${N_SHARDS}.gz"
-#     GVCF_TFRECORDS="${TEMP_DIR}/${SAMPLE}.gvcf.tfrecord@${N_SHARDS}.gz"
-#     CALL_VARIANTS_OUTPUT="${TEMP_DIR}/${SAMPLE}.cvo.tfrecord.gz"
-#     OUTPUT_VCF="${OUTPUT_DIR}/${SAMPLE}.output.vcf.gz"
-#     OUTPUT_GVCF="${OUTPUT_DIR}/${SAMPLE}.output.g.vcf.gz"
-#     LOG_DIR="${LOG_DIR_BASE}/${SAMPLE}"
-#     mkdir -p $LOG_DIR
+# S3 bucket to store output
+BUCKET_OUTPUT=bucket
 
 
-#     ####### ----------------------------- MAKE_EXAMPLES --------------------------------- #######
+cd "${BASE}"
+samples=( $child_sample $father_sample $mother_sample )
+bams=( $child_path $father_path $mother_path )
+indices=( 0 1 2 )
 
-#     echo "MAKE EXAMPLES now..."
+for index in ${indices[@]}
+do
+    SAMPLE=${samples[$index]}
+    BAM="${running_dir}/${bams[$index]}"
 
-#     # run make_examples
-#     cd "${BASE}"
-#     ( time seq 0 $((N_SHARDS-1)) | \
-#     parallel --halt 2 --joblog "${LOG_DIR}/log" --res "${LOG_DIR}" \
-#         sudo docker run \
-#         -v /home/${USER}:/home/${USER} \
-#         gcr.io/deepvariant-docker/deepvariant:"${BIN_VERSION}" \
-#         /opt/deepvariant/bin/make_examples \
-#         --mode calling \
-#         --ref "${REF}" \
-#         --reads "${BAM}" \
-#         --examples "${EXAMPLES}" \
-#         --sample_name "${SAMPLE}" \
-#         --task {} \
-#     ) >"${LOG_DIR}/make_examples_${SAMPLE}.log" 2>&1
+    echo "DOING ${SAMPLE} now from ${BAM}..."
 
-#     # Upload make_examples output to S3
-#     cd "${OUTPUT_DIR}"
-
-#     # Configure AWS CLI first if not already done so:
-#     # aws configure
-
-#     # aws s3 cp "${TEMP_DIR}" s3://${BUCKET_OUTPUT}/${SAMPLE}/make_examples_output_${N_SHARDS}shards/ --exclude '*' --include '*.gz' --recursive
+    EXAMPLES="${TEMP_DIR}/${SAMPLE}.examples.tfrecord@${N_SHARDS}.gz"
+    GVCF_TFRECORDS="${TEMP_DIR}/${SAMPLE}.gvcf.tfrecord@${N_SHARDS}.gz"
+    CALL_VARIANTS_OUTPUT="${TEMP_DIR}/${SAMPLE}.cvo.tfrecord.gz"
+    OUTPUT_VCF="${OUTPUT_DIR}/${SAMPLE}.output.vcf.gz"
+    OUTPUT_GVCF="${OUTPUT_DIR}/${SAMPLE}.output.g.vcf.gz"
+    LOG_DIR="${LOG_DIR_BASE}/${SAMPLE}"
+    mkdir -p $LOG_DIR
 
 
-#     ####### ------------------------------ CALL_VARIANTS -------------------------------- #######
+    ####### ----------------------------- MAKE_EXAMPLES --------------------------------- #######
 
-#     echo "CALL VARIANTS now..."
+    echo "MAKE EXAMPLES now..."
 
-#     # run call_variants
-#     cd "${BASE}"
-#     ( time sudo docker run \
-#         -v /home/${USER}:/home/${USER} \
-#         gcr.io/deepvariant-docker/deepvariant:"${BIN_VERSION}" \
-#         /opt/deepvariant/bin/call_variants \
-#         --outfile "${CALL_VARIANTS_OUTPUT}" \
-#         --examples "${EXAMPLES}" \
-#         --checkpoint "${MODEL}"
-#     ) >"${LOG_DIR}/call_variants_${SAMPLE}.log" 2>&1
-
-#     # Upload call_variants output to S3
-#     cd "${OUTPUT_DIR}"
-
-#     # Configure AWS CLI first if not already done so:
-#     # aws configure
-
-#     # aws s3 cp "${CALL_VARIANTS_OUTPUT}" s3://${BUCKET_OUTPUT}/${SAMPLE}/call_variants_output/
+    # run make_examples
+    cd "${BASE}"
+    ( time seq 0 $((N_SHARDS-1)) | \
+    parallel --halt 2 --joblog "${LOG_DIR}/log" --res "${LOG_DIR}" \
+        sudo docker run \
+        -v /home/${USER}:/home/${USER} \
+        gcr.io/deepvariant-docker/deepvariant:"${BIN_VERSION}" \
+        /opt/deepvariant/bin/make_examples \
+        --mode calling \
+        --ref "${REF}" \
+        --reads "${BAM}" \
+        --examples "${EXAMPLES}" \
+        --sample_name "${SAMPLE}" \
+        --task {} \
+    ) >"${LOG_DIR}/make_examples_${SAMPLE}.log" 2>&1
 
 
-#     ####### ------------------------- POSTPROCESS_VARIANTS ---------------------------- #######
+    ####### ------------------------------ CALL_VARIANTS -------------------------------- #######
 
-#     echo "POSTPROCESS VARIANTS now..."
+    echo "CALL VARIANTS now..."
 
-#     # run postprocess_variants
-#     cd "${BASE}"
-#     ( time sudo docker run \
-#         -v /home/${USER}:/home/${USER} \
-#         gcr.io/deepvariant-docker/deepvariant:"${BIN_VERSION}" \
-#         /opt/deepvariant/bin/postprocess_variants \
-#         --ref "${REF}" \
-#         --infile "${CALL_VARIANTS_OUTPUT}" \
-#         --outfile "${OUTPUT_VCF}"
-#     ) >"${LOG_DIR}/postprocess_variants_${SAMPLE}.log" 2>&1
+    # run call_variants
+    cd "${BASE}"
+    ( time sudo docker run \
+        -v /home/${USER}:/home/${USER} \
+        gcr.io/deepvariant-docker/deepvariant:"${BIN_VERSION}" \
+        /opt/deepvariant/bin/call_variants \
+        --outfile "${CALL_VARIANTS_OUTPUT}" \
+        --examples "${EXAMPLES}" \
+        --checkpoint "${MODEL}"
+    ) >"${LOG_DIR}/call_variants_${SAMPLE}.log" 2>&1
 
-#     # Upload call_variants output to S3
-#     cd "${OUTPUT_DIR}"
 
-#     # Configure AWS CLI first if not already done so:
-#     # aws configure
+    ####### ------------------------- POSTPROCESS_VARIANTS ---------------------------- #######
 
-#     # aws s3 cp "${OUTPUT_VCF}" s3://${BUCKET_OUTPUT}/${SAMPLE}/postprocess_variants_output/
+    echo "POSTPROCESS VARIANTS now..."
 
-# done
+    # run postprocess_variants
+    cd "${BASE}"
+    ( time sudo docker run \
+        -v /home/${USER}:/home/${USER} \
+        gcr.io/deepvariant-docker/deepvariant:"${BIN_VERSION}" \
+        /opt/deepvariant/bin/postprocess_variants \
+        --ref "${REF}" \
+        --infile "${CALL_VARIANTS_OUTPUT}" \
+        --outfile "${OUTPUT_VCF}"
+    ) >"${LOG_DIR}/postprocess_variants_${SAMPLE}.log" 2>&1
 
+done
+
+# Write to S3 bucket
+if [ upload_to_bucket = true ] ; then
+    aws s3 cp "${OUTPUT_DIR}" s3://${BUCKET_OUTPUT}/
+    aws s3 cp "${LOG_DIR}" s3://${BUCKET_OUTPUT}/
+fi
 
 
 
